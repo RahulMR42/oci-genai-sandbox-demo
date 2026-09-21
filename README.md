@@ -1,0 +1,69 @@
+# OCI GenAI Sandbox Lab
+
+An interactive Streamlit lab for OCI Generative AI Sandboxes and OCI's OpenAI-compatible Responses API. It combines executable sandbox tutorials, live API/command output, and concise reference material.
+
+## Run locally
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env
+env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY streamlit run app.py
+```
+
+Set these values in `.env`:
+
+```dotenv
+OCI_REGION=us-chicago-1
+OCI_SANDBOX_PROJECT_ID=ocid1.generativeaiproject.oc1.us-chicago-1...
+OCI_GENAI_PROJECT_ID=ocid1.generativeaiproject.oc1.us-chicago-1...
+OCI_GENAI_API_KEY=your-oci-generative-ai-api-key-secret
+OCI_MODEL_ID=openai.gpt-oss-120b
+OCI_ARTIFACT_MODEL_ID=openai.gpt-oss-120b
+```
+
+`OCI_SANDBOX_PROJECT_ID` must refer to a project with GenAI Sandbox enabled. The app disables proxy inheritance for OCI Sandbox SDK and OCI OpenAI-compatible model calls.
+
+## Tutorial catalog
+
+Use **Search tutorials or labels** to filter by title, description, or labels such as `openai-agent`, `langgraph`, `custom`, `sandbox`, and `web-search`.
+
+| Tutorial | Labels | Live execution |
+| --- | --- | --- |
+| Single-turn command | `sandbox`, `command`, `beginner` | Yes |
+| Multi-turn workspace | `sandbox`, `session`, `workspace` | Yes |
+| Agent + OCI sandbox | `openai-agent`, `sandbox`, `executor` | Prerequisites shown |
+| BYOC sandbox image | `custom`, `byoc`, `container` | Reference workflow |
+| Package + model artifact | `python`, `artifact`, `model` | Yes |
+| LangGraph research worker | `langgraph`, `multi-agent`, `sandbox` | Yes |
+| Hybrid web research relay | `openai-agent`, `multi-agent`, `web-search`, `local-agent` | Yes |
+| CSV policy audit | `python`, `data`, `policy` | Yes |
+| Release test gate | `python`, `testing`, `release` | Yes |
+
+## Live execution console
+
+Runnable tutorials stream the actual OCI SDK lifecycle and command results into one chronological console:
+
+- `▶ Command` — command submitted to the sandbox.
+- `↳ Output` — stdout, stderr, and command exit result.
+- `● Activity` — provisioning, polling, and local-agent handoffs.
+- `⚠ Error` — a failed command or API call.
+
+The console auto-follows new events, has a fixed-height scrollbar, and includes **Copy console**. For credential-bearing launches, only the opaque `exec(base64...)` payload is omitted; the visible command shape and decoded Python source remain available. API keys are never displayed.
+
+## Hybrid web research relay
+
+The runnable relay uses three bounded sessions: local OCI-model planner → OCI sandbox web worker → separate local OCI-model reviewer. The worker identifies itself to Wikipedia with a User-Agent. If a source or sandbox egress policy denies public access, it returns a labelled unavailable-evidence item and completes the handoff transparently rather than inventing sources.
+
+The lab uses deterministic application orchestration because it operates with OCI credentials and OCI's OpenAI-compatible endpoint. The architecture maps to the OpenAI Agents SDK code-orchestrated multi-agent pattern.
+
+## Infrastructure and security
+
+See [infra/README.md](infra/README.md) for project creation, sandbox enablement, IAM, and preview SDK bootstrap. Never commit `.env`, API keys, or raw credential-bearing commands.
+
+## References
+
+- [OCI provider guide for OpenAI environments](https://developers.openai.com/api/docs/guides/agents-api/environments/providers/oci)
+- [OpenAI Agents SDK: agent orchestration](https://openai.github.io/openai-agents-python/multi_agent/)
+- [Oracle GenAI Sandboxes User Guide (internal)](https://confluence.oraclecorp.com/confluence/pages/viewpage.action?pageId=20677439262)
