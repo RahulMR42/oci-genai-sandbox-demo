@@ -157,7 +157,58 @@ def main() -> None:
                     f'<div class="step-card"><div class="step-number">{number}</div><h3>{heading}</h3><p>{copy}</p></div>',
                     unsafe_allow_html=True,
                 )
-        st.info("This app is a tutorial companion. It does not create or delete OCI resources; use it to understand the workflow and validate project access.")
+        st.subheader("What is an OCI GenAI Sandbox?")
+        st.write(
+            "An OCI GenAI Sandbox is a temporary, private cloud workspace where you can safely run code. "
+            "It includes a Linux shell, files, and controlled network access, so an AI agent or user can run commands, "
+            "create files, and continue working during the same session."
+        )
+        st.write(
+            "Each sandbox is created when you need it, can be reconnected to using its ID, and is kept separate from "
+            "your main application and other users."
+        )
+
+        st.subheader("Why use one?")
+        st.write(
+            "It gives AI agents and users a safe, separate place to try code, test ideas, and work with files without "
+            "affecting the main application."
+        )
+        st.markdown(
+            """**Common uses:**
+
+- Run AI-generated code safely.
+- Test commands and scripts before production.
+- Give each user or session its own workspace.
+- Build coding playgrounds and quick previews.
+- Support multi-step agent workflows that create files and run commands.
+"""
+        )
+        with st.expander("See how the agent, sandbox, and external services work together"):
+            st.caption("The application stays in control: it decides what the agent can ask the sandbox to do and which results to keep.")
+            st.graphviz_chart(
+                """
+                digraph sandbox_flow {
+                    graph [rankdir=LR, bgcolor="transparent", pad="0.25", nodesep="0.45", ranksep="0.65"];
+                    node [shape=box, style="rounded,filled", fontname="Arial", fontsize=12, margin="0.18,0.12"];
+                    edge [fontname="Arial", fontsize=10, color="#7B8794", arrowsize=0.7];
+
+                    user [label="User", fillcolor="#EAF2FF", color="#2F6FED"];
+                    app [label="Your application\n+or AI agent", fillcolor="#E8F8F0", color="#159957"];
+                    sandbox [label="OCI GenAI Sandbox\nIsolated Linux workspace\n• run commands\n• create files", fillcolor="#FFF5E6", color="#E38B12"];
+                    external [label="Approved external services\nModels, APIs, or web access", fillcolor="#F4EEFF", color="#7651C8"];
+                    result [label="Selected results\nand files", fillcolor="#F6F8FA", color="#6E7781"];
+
+                    user -> app [label="request"];
+                    app -> sandbox [label="approved task"];
+                    sandbox -> external [label="controlled access"];
+                    external -> sandbox [label="response"];
+                    sandbox -> app [label="output / artifacts"];
+                    app -> result [label="validate and return"];
+                }
+                """
+            )
+            st.caption("The sandbox is temporary and separate from the main application. Only the outputs your application chooses to retrieve leave the workspace.")
+        st.info("This app is a tutorial companion. Runnable tutorials create short-lived sandboxes and request cleanup when they finish.")
 
     with tutorial:
         st.subheader("OCI GenAI Sandbox tutorials")
