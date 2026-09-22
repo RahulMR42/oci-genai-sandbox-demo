@@ -40,6 +40,15 @@ Use **Search tutorials or labels** to filter by title, description, or labels su
 | Hybrid web research relay | `openai-agent`, `multi-agent`, `web-search`, `local-agent` | Yes |
 | CSV policy audit | `python`, `data`, `policy` | Yes |
 | Release test gate | `python`, `testing`, `release` | Yes |
+| Structured document extraction | `python`, `document`, `structured-output` | Yes |
+| Dependency SBOM check | `python`, `security`, `dependencies`, `sbom` | Yes |
+| API contract smoke test | `python`, `api`, `testing`, `contract` | Yes |
+
+## Using the tutorial catalog
+
+The **Sandbox tutorial** tab is the default landing view. Each sample tile offers **Read more** for a closable workflow, execution-flow, and security-constraints overview, plus **Open tutorial** for the complete lifecycle and code reference. Closing the Read more dialog returns to the tutorial catalog.
+
+Runnable samples display a **Run enabled** badge. Open one of those samples to use its **Run tutorial** control and watch the chronological live execution console. The catalog intentionally does not provision sandboxes directly.
 
 ## Live execution console
 

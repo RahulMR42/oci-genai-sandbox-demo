@@ -23,6 +23,28 @@ def value(name: str, fallback: str = "") -> str:
     return os.getenv(name, fallback)
 
 
+def console_entry_type(event: str) -> tuple[str, str]:
+    if event.startswith("OCI SDK → run_sandbox_command"):
+        return "command", "▶ Command"
+    if "← command exit" in event or event.startswith("Local executor ←"):
+        return "output", "↳ Output"
+    if event.startswith("ERROR:"):
+        return "output", "⚠ Error"
+    return "activity", "● Activity"
+
+
+def console_markup(entries: list[str], element_id: str) -> str:
+    cards = []
+    for item in entries:
+        style, label = console_entry_type(item)
+        cards.append(f'<div class="execution-entry {style}"><span class="execution-label">{label}</span>{escape(item)}</div>')
+    content = "".join(cards) or "<span class=\"execution-label\">Ready</span>No execution events have arrived yet."
+    return (
+        f'<div id="{element_id}" class="live-log">{content}</div>'
+        f'<script>const c=document.getElementById("{element_id}"); if(c) c.scrollTop=c.scrollHeight;</script>'
+    )
+
+
 def apply_oracle_theme() -> None:
     st.markdown(
         """
@@ -74,28 +96,6 @@ def apply_oracle_theme() -> None:
     )
 
 
-def console_entry_type(event: str) -> tuple[str, str]:
-    if event.startswith("OCI SDK → run_sandbox_command"):
-        return "command", "▶ Command"
-    if "← command exit" in event or event.startswith("Local executor ←"):
-        return "output", "↳ Output"
-    if event.startswith("ERROR:"):
-        return "output", "⚠ Error"
-    return "activity", "● Activity"
-
-
-def console_markup(entries: list[str], element_id: str, extra_class: str = "") -> str:
-    cards = []
-    for item in entries:
-        style, label = console_entry_type(item)
-        cards.append(f'<div class="execution-entry {style}"><span class="execution-label">{label}</span>{escape(item)}</div>')
-    content = "".join(cards) or "<span class=\"execution-label\">Ready</span>No execution events have arrived yet."
-    return (
-        f'<div id="{element_id}" class="live-log {extra_class}">{content}</div>'
-        f'<script>const c=document.getElementById("{element_id}"); if(c) c.scrollTop=c.scrollHeight;</script>'
-    )
-
-
 def main() -> None:
     apply_oracle_theme()
 
@@ -133,8 +133,8 @@ def main() -> None:
         unsafe_allow_html=True,
     )
 
-    overview, tutorial, validate, resources = st.tabs(
-        ["Overview", "⭐ Sandbox tutorial", "Validate access", "Resources"]
+    tutorial, overview, validate, resources = st.tabs(
+        ["⭐ Sandbox tutorial", "Overview", "Validate access", "Resources"]
     )
 
     with overview:
@@ -161,6 +161,14 @@ def main() -> None:
                 "tag": "5 MIN · FIRST RUN",
                 "labels": ["sandbox", "command", "beginner"],
                 "summary": "Create a disposable sandbox, run one shell command, read stdout, then stop it.",
+                "read_more": {
+                    "workflow": [
+                        "This is the smallest useful sandbox transaction: the application asks OCI for a short-lived runtime, waits until it is ready, submits one bounded command, and displays the returned output. It is a good first check that the project, region, and IAM policy are wired correctly before introducing packages, files, or agent orchestration.",
+                        "Treat the command result as an observation, not durable application state. If a later step needs the result, collect it into the application or an approved artifact store before teardown; a stopped sandbox should not be used as a record system.",
+                    ],
+                    "flow": ["Create isolated runtime", "Wait for RUNNING", "Execute one allowlisted command", "Read stdout and exit status", "Stop runtime"],
+                    "security": "Keep the command narrowly scoped and avoid putting secrets in command arguments, output, or filenames. Use a dedicated project with least-privilege IAM, set a short expiration, and always stop the sandbox in a finally/cleanup path when an error occurs.",
+                },
                 "trace": [
                     "Create — client.create_sandbox(project_id, CreateSandboxDetails(...))",
                     "Ready — client.get_sandbox(sandbox_id) → RUNNING",
@@ -174,6 +182,14 @@ def main() -> None:
                 "tag": "10 MIN · STICKY SESSION",
                 "labels": ["sandbox", "session", "workspace"],
                 "summary": "Keep one sandbox ID across turns so files from the first command remain available to the next.",
+                "read_more": {
+                    "workflow": [
+                        "A multi-turn workflow preserves one sandbox ID while the user completes related steps. The first turn writes a draft to `/workspace`; the second turn reads it back. That continuity is useful for iterative analysis, but it also means the application must deliberately own the session lifecycle rather than creating a new runtime for every button click.",
+                        "Persist only the opaque sandbox identifier in server-side session state and associate it with the authenticated user and request. Make the next turn explicit, display the prior command history, and end the session when the task finishes or an inactivity deadline is reached.",
+                    ],
+                    "flow": ["Create once", "Store sandbox ID with session", "Write workspace state", "Run ordered follow-up turn", "Collect output", "Stop on completion or timeout"],
+                    "security": "Never share a sandbox ID across users or browser sessions. Restrict commands to the expected workspace, validate any filenames supplied by a user, and do not treat files left in `/workspace` as trusted input on a later turn.",
+                },
                 "trace": [
                     "Create once — client.create_sandbox(...) → sandbox_id",
                     "Turn 1 — run_and_wait(command=\"echo draft > /workspace/brief.txt\")",
@@ -187,6 +203,14 @@ def main() -> None:
                 "tag": "20 MIN · AGENTS API",
                 "labels": ["openai-agent", "sandbox", "executor"],
                 "summary": "Connect a self-hosted Agents API session to OCI compute; the executor runs agent commands inside the sandbox.",
+                "read_more": {
+                    "workflow": [
+                        "The application creates two separate concerns: an Agents API session that coordinates the work, and an OCI sandbox that executes tool commands. The executor bridges them, streaming agent events while keeping command execution inside the isolated runtime and returning only the files or results the application chooses to retrieve.",
+                        "This pattern is appropriate when an agent needs a real workspace and repeatable tool environment. Keep the orchestrator responsible for approvals, artifact selection, and teardown; the sandbox is an execution boundary, not an authority to access every connected system.",
+                    ],
+                    "flow": ["Create agent session", "Provision OCI sandbox", "Start executor", "Stream agent/tool events", "Retrieve selected artifacts", "Delete session and stop sandbox"],
+                    "security": "Use a dedicated executor credential with the minimum scope and short lifetime; do not copy the primary model key into the sandbox. Gate destructive or network-sensitive tools in the application, pin dependencies, and redact event logs before retaining them.",
+                },
                 "trace": [
                     "Session — create a self-hosted Agents API session with /workspace",
                     "Sandbox — create OCI sandbox and wait for RUNNING",
@@ -201,6 +225,14 @@ def main() -> None:
                 "tag": "30 MIN · LIMITED AVAILABILITY",
                 "labels": ["custom", "byoc", "container"],
                 "summary": "Run a sandbox from a vetted custom image when the standard Python runtime does not include your required tools or dependencies.",
+                "read_more": {
+                    "workflow": [
+                        "Bring-your-own-container starts before sandbox creation: build a minimal image, scan it, record its immutable digest, and publish it to an approved registry location. Provision the sandbox from that reviewed image, then run a small smoke command to prove that the expected runtime is present.",
+                        "Use BYOC only when the managed image cannot satisfy a documented dependency. Keeping the Dockerfile and image provenance alongside the application gives reviewers a clear route from source, through build, to the exact image used by a session.",
+                    ],
+                    "flow": ["Build minimal image", "Scan and approve digest", "Publish to OCIR", "Provision by digest", "Run smoke check", "Record provenance and stop"],
+                    "security": "Pin base images and package versions, run as a non-root user where supported, and exclude credentials, SSH keys, and build caches from image layers. Prefer an immutable image digest over a mutable tag and limit registry pull permissions to the sandbox project.",
+                },
                 "trace": [
                     "Build — create and scan a minimal image with only required tools",
                     "Publish — push the approved image to your OCI Container Registry path",
@@ -215,6 +247,14 @@ def main() -> None:
                 "tag": "15 MIN · ARTIFACT RETURN",
                 "labels": ["python", "artifact", "model"],
                 "summary": "Install a Python dependency, call an OCI-hosted model from the isolated workspace, then return a generated artifact to the application.",
+                "read_more": {
+                    "workflow": [
+                        "This sample separates transient compute from the returned deliverable. The sandbox installs an approved dependency, runs a focused program, writes a structured `result.json`, and the application retrieves and validates that artifact before presenting a summary. The file format makes the boundary between sandbox work and application work explicit.",
+                        "For production use, replace ad-hoc package installation with a locked dependency set or a vetted image, and define an artifact schema with size limits and validation. The application should reject malformed output rather than forwarding it directly into a later model prompt.",
+                    ],
+                    "flow": ["Start sandbox", "Prepare approved dependency", "Call approved model", "Write JSON artifact", "Validate and retrieve artifact", "Stop sandbox"],
+                    "security": "Fetch credentials at runtime through Vault, Resource Principal, or another approved identity mechanism—never embed them in source, images, or output. Scope the model/project permission tightly, scrub artifacts for secrets, and validate JSON before a downstream model or user consumes it.",
+                },
                 "trace": [
                     "Create — start one sandbox for the application request",
                     "Prepare — install the approved Python package inside /workspace",
@@ -229,6 +269,14 @@ def main() -> None:
                 "tag": "10 MIN · LIVE AGENT WORKFLOW",
                 "labels": ["langgraph", "multi-agent", "sandbox"],
                 "summary": "Run a stateful LangGraph worker in a dedicated sandbox, persist intermediate research files, and return a structured report.",
+                "read_more": {
+                    "workflow": [
+                        "The graph turns one research task into explicit nodes: research gathers bounded evidence, synthesis drafts a report, and review checks the output. Each node can write an intermediate file under `/workspace`, which makes debugging and artifact collection possible without confusing graph state with the final report.",
+                        "Use a stable graph schema and checkpoint only the state that is needed to resume an approved follow-up. A caller should receive the final report plus selected diagnostics, not unrestricted access to every intermediate prompt, tool response, or workspace file.",
+                    ],
+                    "flow": ["Install locked graph dependencies", "Route task through research node", "Persist evidence", "Synthesize", "Review and serialize report", "Retrieve approved outputs"],
+                    "security": "Constrain tools and node inputs separately: a model instruction is not an access-control policy. Keep credentials outside graph state, cap recursion/time/token budgets, validate retrieved content, and apply egress rules if a node can reach external sources.",
+                },
                 "trace": [
                     "Prepare — install langgraph and the approved tool dependencies",
                     "Plan — graph routes a question through research, synthesis, and review nodes",
@@ -243,6 +291,14 @@ def main() -> None:
                 "tag": "15 MIN · MULTI-AGENT HANDOFF",
                 "labels": ["openai-agent", "multi-agent", "web-search", "local-agent", "sandbox"],
                 "summary": "A local planner delegates public-web research to a sandbox worker, then a separate local reviewer turns the returned evidence into a concise answer.",
+                "read_more": {
+                    "workflow": [
+                        "The relay uses three deliberately separated roles. A local planner converts the request into a narrow query, the sandbox worker collects public evidence and emits a structured memo, and an independent local reviewer writes the final answer from that memo only. This separation keeps web retrieval, synthesis, and final presentation observable and testable.",
+                        "The handoff is the key control point: parse and validate the memo, preserve source attribution, and label unavailable evidence rather than filling gaps with assumptions. The reviewer should see the validated evidence payload, not arbitrary shell output or the sandbox environment.",
+                    ],
+                    "flow": ["Plan constrained query locally", "Run sandbox web worker", "Write cited memo", "Validate memo schema", "Review only passed evidence", "Stop bounded worker"],
+                    "security": "Apply an egress allowlist, request timeout, response-size cap, and a clear User-Agent for web retrieval. Treat retrieved pages as untrusted data: defend against prompt injection, do not expose internal URLs or credentials, and retain only approved citations and excerpts.",
+                },
                 "trace": [
                     "Local session A — planner produces a constrained public-web query",
                     "Sandbox session B — worker retrieves public evidence and writes a research memo",
@@ -265,6 +321,14 @@ answer = local_model(f"Synthesize this validated evidence: {memo_json}")""",
                 "tag": "8 MIN · DATA CHECK",
                 "labels": ["python", "data", "policy", "sandbox"],
                 "summary": "Create a small resource inventory in the sandbox, validate ownership fields, and return a machine-readable audit result.",
+                "read_more": {
+                    "workflow": [
+                        "The sandbox receives or constructs a narrowly scoped inventory, then applies a deterministic policy check to it. The example identifies rows without an owner and returns a small JSON result; in a real audit, the same pattern can produce findings with rule identifiers, affected records, and remediation guidance.",
+                        "Keep the audit logic deterministic and versioned so a result can be reproduced. The application should validate headers and row types before execution, then retain the policy version and input digest with the returned finding instead of keeping raw sensitive data longer than necessary.",
+                    ],
+                    "flow": ["Create disposable workspace", "Validate CSV schema", "Run versioned policy", "Emit JSON findings", "Validate result", "Stop sandbox"],
+                    "security": "Classify the CSV before it enters the sandbox and minimize the columns provided. Reject spreadsheet formulas or unsafe encodings where relevant, prevent path traversal in uploaded filenames, and ensure returned findings do not disclose data beyond the user’s authorization.",
+                },
                 "trace": [
                     "Create — provision one disposable sandbox workspace",
                     "Write — create a sample inventory under /workspace",
@@ -280,6 +344,14 @@ python -c "import csv, json; rows=list(csv.DictReader(open('/workspace/inventory
                 "tag": "8 MIN · BUILD VALIDATION",
                 "labels": ["python", "testing", "release", "sandbox"],
                 "summary": "Build a tiny isolated application artifact, execute its test gate, and return the command result before release approval.",
+                "read_more": {
+                    "workflow": [
+                        "A release gate creates a clean runtime, writes or retrieves the candidate artifact, and runs an explicit assertion suite. The application collects stdout, stderr, exit status, and a build identifier so a human or deployment workflow can make a decision using evidence from an isolated environment.",
+                        "The sample is intentionally small, but its control flow scales to a real test command. Pin the source revision and dependencies, set a timeout, and define which test result is sufficient for approval; a passing command alone should not silently bypass required review or deployment controls.",
+                    ],
+                    "flow": ["Create clean runtime", "Materialize pinned artifact", "Run test gate", "Collect logs and status", "Publish decision evidence", "Stop sandbox"],
+                    "security": "Do not give test code production credentials, deployment permissions, or unrestricted network access. Treat build inputs as untrusted, restrict writable paths, cap execution resources, and preserve logs according to retention policy without leaking tokens or configuration values.",
+                },
                 "trace": [
                     "Create — start a clean sandbox for the release check",
                     "Write — generate a small application module in /workspace",
@@ -291,10 +363,113 @@ python -c "import csv, json; rows=list(csv.DictReader(open('/workspace/inventory
 python -c "from pathlib import Path; exec(Path('/workspace/calculator.py').read_text()); assert add(2, 3) == 5; print('release gate passed')"''',
                 "language": "bash",
             },
+            "Structured document extraction": {
+                "tag": "12 MIN · JSON CONTRACT",
+                "labels": ["python", "document", "structured-output", "sandbox"],
+                "summary": "Extract a small set of approved fields from a document, validate the result against a JSON contract, and return only the normalized record.",
+                "read_more": {
+                    "workflow": [
+                        "This pattern puts a strict contract between unstructured input and downstream automation. The sandbox receives a bounded document, extracts only the requested fields, and serializes a small JSON record. The application validates that record before it is used by a database, workflow, or reviewer.",
+                        "Keep extraction and acceptance separate: a model may propose values, while deterministic validation checks types, required fields, enumerations, and confidence thresholds. Route exceptions to a review queue instead of silently filling missing values or accepting extra fields.",
+                    ],
+                    "flow": ["Stage approved document", "Extract requested fields", "Write candidate JSON", "Validate schema and rules", "Return normalized record or review reason", "Stop sandbox"],
+                    "security": "Minimize document access, encrypt sensitive source material at rest, and use a short retention period for workspace files. Never allow document text to redefine the extraction policy, and redact personal or confidential fields from logs and troubleshooting output.",
+                },
+                "trace": [
+                    "Stage — copy one approved input document into /workspace",
+                    "Extract — run the focused extraction program with an explicit field list",
+                    "Validate — check result.json against the application JSON schema",
+                    "Review — return a labelled exception when fields are missing or ambiguous",
+                    "Clean up — collect the normalized record and stop the sandbox",
+                ],
+                "code": '''python extract.py --input /workspace/source.txt --fields invoice_id,amount,currency > /workspace/candidate.json
+python -c "import json; from pathlib import Path; record=json.loads(Path('/workspace/candidate.json').read_text()); assert set(record) <= {'invoice_id','amount','currency'}; assert record['currency'] in {'USD','EUR','INR'}; print(json.dumps(record))"''',
+                "language": "bash",
+            },
+            "Dependency SBOM check": {
+                "tag": "12 MIN · SUPPLY CHAIN",
+                "labels": ["python", "security", "dependencies", "sbom"],
+                "summary": "Inspect a pinned dependency set in an isolated workspace, produce a compact SBOM, and flag packages outside the approved policy.",
+                "read_more": {
+                    "workflow": [
+                        "A dependency check begins with a pinned requirements file or lockfile, not a mutable development environment. The sandbox installs or inspects that exact set, records package names and versions into a software bill of materials, and compares the result with the organization’s approved dependency policy.",
+                        "Return the SBOM and policy findings as distinct artifacts. That lets a release process distinguish an informational inventory from a blocking exception and makes it possible to reproduce the check against the same source revision later.",
+                    ],
+                    "flow": ["Stage lockfile", "Resolve or inspect pinned packages", "Generate SBOM", "Compare with approval policy", "Return findings and digest", "Stop sandbox"],
+                    "security": "Use an internal or allowlisted package index, require hashes where possible, and prohibit dependency resolution from arbitrary URLs. Do not execute package install hooks with elevated permissions, and make network access and cache contents part of the build evidence.",
+                },
+                "trace": [
+                    "Stage — provide a lockfile and approved-package policy to /workspace",
+                    "Inspect — enumerate exact package names and versions",
+                    "Inventory — write sbom.json with a source and policy digest",
+                    "Evaluate — flag unapproved, unpinned, or disallowed packages",
+                    "Clean up — return findings without retaining the package cache",
+                ],
+                "code": '''python -m pip install --dry-run --requirement /workspace/requirements.txt
+python -c "import importlib.metadata as m, json; components=sorted((d.metadata['Name'], d.version) for d in m.distributions() if d.metadata['Name']); print(json.dumps({'components':[{'name':name,'version':version} for name,version in components]}))" > /workspace/sbom.json''',
+                "language": "bash",
+            },
+            "API contract smoke test": {
+                "tag": "10 MIN · INTEGRATION CHECK",
+                "labels": ["python", "api", "testing", "contract"],
+                "summary": "Call an approved non-production endpoint with a fixed request fixture, verify its response contract, and return concise test evidence.",
+                "read_more": {
+                    "workflow": [
+                        "An API smoke test proves a narrow integration without turning the sandbox into a general network scanner. The workspace loads a fixed fixture, calls one allowlisted non-production endpoint, then checks the response status, headers, and JSON shape against a declared contract.",
+                        "A useful result captures the endpoint alias, contract version, timestamps, status, and assertion outcome—not raw request bodies or secrets. Failures should be actionable: report the assertion that failed and preserve a sanitized response sample only when policy permits it.",
+                    ],
+                    "flow": ["Load fixed fixture", "Call allowlisted test endpoint", "Check status and headers", "Validate response schema", "Return sanitized evidence", "Stop sandbox"],
+                    "security": "Use short-lived test credentials scoped to a non-production tenant, keep endpoint hostnames on an egress allowlist, and block methods that mutate data unless an explicit isolated test account is used. Redact authorization headers, tokens, and customer data from all returned logs.",
+                },
+                "trace": [
+                    "Prepare — load an approved fixture and endpoint alias",
+                    "Request — issue one timeout-bound HTTPS request to the test service",
+                    "Assert — verify response code, required headers, and schema",
+                    "Return — emit sanitized JSON evidence and the assertion status",
+                    "Clean up — stop the sandbox and invalidate temporary credentials",
+                ],
+                "code": '''python - <<'PY'
+import json, os, urllib.request
+request = urllib.request.Request(os.environ['TEST_API_URL'], headers={'Accept': 'application/json'})
+with urllib.request.urlopen(request, timeout=10) as response:
+    body = json.load(response)
+    assert response.status == 200 and 'id' in body
+    print(json.dumps({'status': response.status, 'contract': 'passed'}))
+PY''',
+                "language": "bash",
+            },
         }
-        runnable_tutorials = {"Single-turn command", "Multi-turn workspace", "Package + model artifact", "LangGraph research worker", "Hybrid web research relay", "CSV policy audit", "Release test gate"}
+        @st.dialog("Tutorial details", width="large")
+        def show_read_more(name: str, details: dict) -> None:
+            st.subheader(name)
+            for paragraph in details["read_more"]["workflow"]:
+                st.write(paragraph)
+            st.markdown("#### Execution flow")
+            st.markdown(" → ".join(details["read_more"]["flow"]))
+            st.markdown("#### Security constraints")
+            st.write(details["read_more"]["security"])
+            if st.button("Close", key=f"close-read-more-{name}"):
+                st.session_state.pop("read_more_tutorial", None)
+                st.session_state.selected_tutorial = None
+                st.rerun()
+
+        runnable_tutorials = {
+            "Single-turn command", "Multi-turn workspace", "Package + model artifact",
+            "LangGraph research worker", "Hybrid web research relay", "CSV policy audit",
+            "Release test gate", "Structured document extraction", "Dependency SBOM check",
+            "API contract smoke test",
+        }
+
         if "selected_tutorial" not in st.session_state:
             st.session_state.selected_tutorial = None
+        requested_read_more = st.query_params.get("read_more")
+        requested_tutorial = st.query_params.get("tutorial")
+        if requested_read_more in tutorials:
+            st.session_state.read_more_tutorial = requested_read_more
+            st.query_params.clear()
+        elif requested_tutorial in tutorials:
+            st.session_state.selected_tutorial = requested_tutorial
+            st.query_params.clear()
         if st.session_state.selected_tutorial is None:
             search_text = st.text_input(
                 "Search tutorials or labels",
@@ -314,15 +489,24 @@ python -c "from pathlib import Path; exec(Path('/workspace/calculator.py').read_
                 columns = st.columns(2, gap="large")
                 for column, (name, details) in zip(columns, matching_tutorials[row_start:row_start + 2]):
                     with column:
-                        run_badge = '<span class="run-badge">Run enabled</span>' if name in runnable_tutorials else ''
                         labels = "".join(f'<span class="label-chip">{escape(label)}</span>' for label in details["labels"])
+                        run_badge = '<span class="run-badge">Run enabled</span>' if name in runnable_tutorials else ''
                         st.markdown(
-                            f'<div class="step-card"><div class="step-number">{details["tag"]}</div><h3>{name}</h3>{run_badge}<div>{labels}</div><p>{details["summary"]}</p></div>',
+                            f'<div class="step-card"><div class="step-number">{details["tag"]}</div><h3>{name}</h3>'
+                            f'{run_badge}<div>{labels}</div><p>{details["summary"]}</p></div>',
                             unsafe_allow_html=True,
                         )
-                        if st.button("Open tutorial", key=f"tutorial-{name}", use_container_width=True):
-                            st.session_state.selected_tutorial = name
-                            st.rerun()
+                        read_more, open_tutorial = st.columns(2)
+                        with read_more:
+                            if st.button("Read more", key=f"read-more-{name}", use_container_width=True):
+                                st.session_state.read_more_tutorial = name
+                        with open_tutorial:
+                            if st.button("Open tutorial", key=f"tutorial-{name}", use_container_width=True):
+                                st.session_state.selected_tutorial = name
+                                st.rerun()
+            read_more_name = st.session_state.get("read_more_tutorial")
+            if read_more_name:
+                show_read_more(read_more_name, tutorials[read_more_name])
         else:
             if st.button("← All tutorials"):
                 st.session_state.selected_tutorial = None
@@ -334,11 +518,18 @@ python -c "from pathlib import Path; exec(Path('/workspace/calculator.py').read_
                 labels = "".join(f'<span class="label-chip">{escape(label)}</span>' for label in selected["labels"])
                 st.markdown(f'<div class="tutorial-heading"><div class="step-number">{selected["tag"]}</div><h2>{selected_name}</h2><div>{labels}</div><p>{selected["summary"]}</p></div>', unsafe_allow_html=True)
             with header_action:
-                should_run = False
+                should_run = st.session_state.pop("run_tutorial_now", None) == selected_name
                 if selected_name in runnable_tutorials:
-                    should_run = st.button("Run tutorial", type="primary", use_container_width=True)
+                    should_run = st.button("Run tutorial", type="primary", use_container_width=True) or should_run
             session_column, execution_column = st.columns((1, 1.25), gap="large")
             with session_column:
+                with st.expander("Read more: workflow & safeguards", expanded=False):
+                    for paragraph in selected["read_more"]["workflow"]:
+                        st.write(paragraph)
+                    st.markdown("**Execution flow**")
+                    st.markdown(" → ".join(selected["read_more"]["flow"]))
+                    st.markdown("**Security constraints**")
+                    st.write(selected["read_more"]["security"])
                 with st.expander("Session lifecycle", expanded=False):
                     for index, item in enumerate(selected["trace"], start=1):
                         st.markdown(f"`{index}` {item}")
@@ -350,101 +541,55 @@ python -c "from pathlib import Path; exec(Path('/workspace/calculator.py').read_
             with execution_column:
                 with st.expander("Actual code", expanded=False):
                     st.code(selected["code"], language=selected["language"])
-                if selected_name in runnable_tutorials:
-                    st.caption("Use the Run tutorial button above to create a short-lived OCI sandbox and stream the real API events below.")
-                elif selected_name == "Agent + OCI sandbox":
+                if selected_name == "Agent + OCI sandbox":
                     st.warning("Live Agents API execution requires OPENAI_API_KEY and OPENAI_EXECUTOR_API_KEY plus the Oracle sandbox beta SDK. These are intentionally not present in this local configuration.")
+                elif selected_name in runnable_tutorials:
+                    st.caption("Run this tutorial to provision a short-lived OCI sandbox and stream the actual API events.")
                 else:
-                    st.info("This workflow reuses the same sandbox across turns. Run the single-turn tutorial first to verify OCI sandbox access.")
+                    st.info("This reference view shows the workflow and command shape without provisioning a sandbox.")
             st.warning("OCI GenAI Sandboxes are limited-availability. Use the Oracle-provided beta SDK and a sandbox-enabled project before provisioning.")
-            executable = selected_name in runnable_tutorials
-            if executable:
-                # Clear pre-console session content once after a console layout upgrade.
-                if st.session_state.get("execution_console_layout") != 5:
-                    for key in list(st.session_state):
-                        if key.startswith(("tutorial_log_", "tutorial_commands_", "tutorial_timeline_")):
-                            del st.session_state[key]
-                    st.session_state.execution_console_layout = 5
-                timeline_key = f"tutorial_timeline_{selected_name}"
-                console_title, console_action = st.columns((5, 1))
-                with console_title:
-                    st.markdown("#### Live execution console")
-                with console_action:
-                    st.markdown(
-                        '<button class="console-copy" onclick="navigator.clipboard.writeText(document.getElementById(\'execution-console\').innerText)">⧉ Copy console</button>',
-                        unsafe_allow_html=True,
-                    )
+            if selected_name in runnable_tutorials:
+                st.markdown("#### Live execution console")
                 console_panel = st.empty()
+                timeline_key = f"tutorial_timeline_{selected_name}"
 
                 def render_console(entries: list[str]) -> None:
-                    console_panel.markdown(
-                        console_markup(entries, "execution-console"),
-                        unsafe_allow_html=True,
-                    )
+                    console_panel.markdown(console_markup(entries, "execution-console"), unsafe_allow_html=True)
 
-                timeline: list[str] = []
-            if executable and should_run:
-                commands = None
-                if selected_name == "Multi-turn workspace":
-                    commands = [
-                        "echo 'draft plan' > /workspace/brief.txt",
-                        "cat /workspace/brief.txt",
-                    ]
-                elif selected_name == "CSV policy audit":
-                    commands = [
-                        "printf 'name,owner\\nmodel-api,platform\\nreport-job,\\n' > /workspace/inventory.csv",
-                        "python -c \"import csv, json; rows=list(csv.DictReader(open('/workspace/inventory.csv'))); print(json.dumps({'missing_owner':[r['name'] for r in rows if not r['owner']]}))\"",
-                    ]
-                elif selected_name == "Release test gate":
-                    commands = [
-                        "printf 'def add(left, right): return left + right\\n' > /workspace/calculator.py",
-                        "python -c \"from pathlib import Path; exec(Path('/workspace/calculator.py').read_text()); assert add(2, 3) == 5; print('release gate passed')\"",
-                    ]
-                try:
-                    artifact_payload = None
-                    if selected_name == "Hybrid web research relay":
-                        event_stream = run_hybrid_web_research(
-                            project_id, region, value("OCI_CLI_PROFILE", "DEFAULT"), api_key, artifact_model, compartment_id
-                        )
-                    elif selected_name == "LangGraph research worker":
-                        event_stream = run_langgraph_research(project_id, region, value("OCI_CLI_PROFILE", "DEFAULT"), api_key, artifact_model)
-                    elif selected_name == "Package + model artifact":
-                        event_stream = run_package_model_artifact(
-                            project_id, region, value("OCI_CLI_PROFILE", "DEFAULT"), api_key, artifact_model
-                        )
-                    else:
-                        event_stream = run_single_turn(
-                            project_id, region, value("OCI_CLI_PROFILE", "DEFAULT"), commands
-                        )
-                    for event in event_stream:
-                        timeline.append(event)
-                        if selected_name == "Package + model artifact" and "ARTIFACT_JSON=" in event:
-                            artifact_payload = event.split("ARTIFACT_JSON=", 1)[1].strip()
-                        if selected_name == "Hybrid web research relay" and "SANDBOX_MEMO=" in event:
-                            artifact_payload = event.split("SANDBOX_MEMO=", 1)[1].strip()
-                        render_console(timeline)
-                    if selected_name == "Package + model artifact" and artifact_payload:
-                        artifact = json.loads(artifact_payload)
-                        timeline.append("Local executor → parse result.json and summarize with default model")
-                        summary = run_prompt(
-                            OciOpenAIConfig(region, compartment_id, project_id, model, api_key),
-                            f"Summarize this sandbox artifact in one concise sentence: {artifact['result']}",
-                        )
-                        timeline.append(f"Local executor ← default-model summary: {summary}")
-                    if selected_name == "Hybrid web research relay" and artifact_payload:
-                        memo = json.loads(artifact_payload)
-                        timeline.append("Local reviewer session C → synthesize the sandbox evidence")
-                        review = run_prompt(
-                            OciOpenAIConfig(region, compartment_id, project_id, model, api_key),
-                            "Write one concise answer based only on this sandbox research memo: " + memo["memo"],
-                        )
-                        timeline.append(f"Local reviewer output ← {review}")
-                except Exception as exc:
-                    timeline.append(f"ERROR: {exc}")
-                st.session_state[timeline_key] = timeline
-            if executable:
-                current_timeline = st.session_state.get(timeline_key, [])
-                render_console(current_timeline)
+                if should_run:
+                    commands = None
+                    if selected_name == "Multi-turn workspace":
+                        commands = ["echo 'draft plan' > /workspace/brief.txt", "cat /workspace/brief.txt"]
+                    elif selected_name == "CSV policy audit":
+                        commands = [
+                            "printf 'name,owner\\nmodel-api,platform\\nreport-job,\\n' > /workspace/inventory.csv",
+                            "python -c \"import csv, json; rows=list(csv.DictReader(open('/workspace/inventory.csv'))); print(json.dumps({'missing_owner':[r['name'] for r in rows if not r['owner']]}))\"",
+                        ]
+                    elif selected_name == "Release test gate":
+                        commands = ["printf 'def add(left, right): return left + right\\n' > /workspace/calculator.py", "python -c \"from pathlib import Path; exec(Path('/workspace/calculator.py').read_text()); assert add(2, 3) == 5; print('release gate passed')\""]
+                    elif selected_name == "Structured document extraction":
+                        commands = ["printf 'invoice_id=INV-1042\\namount=1250.00\\ncurrency=INR\\n' > /workspace/source.txt", "python -c \"import json; source=dict(line.strip().split('=', 1) for line in open('/workspace/source.txt') if line.strip()); result={'invoice_id': source['invoice_id'], 'amount': float(source['amount']), 'currency': source['currency']}; assert result['currency'] in {'USD', 'EUR', 'INR'}; print(json.dumps(result))\""]
+                    elif selected_name == "Dependency SBOM check":
+                        commands = ["printf 'python-dotenv==1.0.0\\nstreamlit==1.64.0\\n' > /workspace/requirements.txt", "python -c \"import json; packages=[line.strip().split('==', 1) for line in open('/workspace/requirements.txt') if line.strip()]; approved={'python-dotenv', 'streamlit'}; findings=[name for name, version in packages if name not in approved or not version]; print(json.dumps({'components': [{'name': name, 'version': version} for name, version in packages], 'unapproved': findings}))\""]
+                    elif selected_name == "API contract smoke test":
+                        commands = ["printf '{\\\"id\\\": \\\"demo-123\\\", \\\"status\\\": \\\"ready\\\"}\\n' > /workspace/api-response.json", "python -c \"import json; body=json.load(open('/workspace/api-response.json')); assert set(body) == {'id', 'status'} and body['status'] == 'ready'; print(json.dumps({'status': 200, 'contract': 'passed'}))\""]
+                    timeline: list[str] = []
+                    try:
+                        if selected_name == "Hybrid web research relay":
+                            events = run_hybrid_web_research(project_id, region, value("OCI_CLI_PROFILE", "DEFAULT"), api_key, artifact_model, compartment_id)
+                        elif selected_name == "LangGraph research worker":
+                            events = run_langgraph_research(project_id, region, value("OCI_CLI_PROFILE", "DEFAULT"), api_key, artifact_model)
+                        elif selected_name == "Package + model artifact":
+                            events = run_package_model_artifact(project_id, region, value("OCI_CLI_PROFILE", "DEFAULT"), api_key, artifact_model)
+                        else:
+                            events = run_single_turn(project_id, region, value("OCI_CLI_PROFILE", "DEFAULT"), commands)
+                        for event in events:
+                            timeline.append(event)
+                            render_console(timeline)
+                    except Exception as exc:
+                        timeline.append(f"ERROR: {exc}")
+                    st.session_state[timeline_key] = timeline
+                render_console(st.session_state.get(timeline_key, []))
 
     with validate:
         st.subheader("Validate OCI project access")
