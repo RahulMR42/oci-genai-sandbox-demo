@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import json
+import time
 from html import escape
 
 import streamlit as st
@@ -26,7 +27,7 @@ def value(name: str, fallback: str = "") -> str:
 def console_entry_type(event: str) -> tuple[str, str]:
     if event.startswith("OCI SDK → run_sandbox_command"):
         return "command", "▶ Command"
-    if "← command exit" in event or event.startswith("Local executor ←"):
+    if "← command exit" in event or event.startswith(("Local executor ←", "Local planner output", "Local reviewer output")):
         return "output", "↳ Output"
     if event.startswith("ERROR:"):
         return "output", "⚠ Error"
@@ -43,6 +44,11 @@ def console_markup(entries: list[str], element_id: str) -> str:
         f'<div id="{element_id}" class="live-log">{content}</div>'
         f'<script>const c=document.getElementById("{element_id}"); if(c) c.scrollTop=c.scrollHeight;</script>'
     )
+
+
+def timed_event(event: str, elapsed_seconds: float) -> str:
+    """Keep the raw event prefix intact while showing elapsed work in the console."""
+    return f"{event}\n⏱ Step time: {elapsed_seconds:.2f}s"
 
 
 def apply_oracle_theme() -> None:
@@ -575,6 +581,9 @@ PY''',
                         commands = ["printf '{\\\"id\\\": \\\"demo-123\\\", \\\"status\\\": \\\"ready\\\"}\\n' > /workspace/api-response.json", "python -c \"import json; body=json.load(open('/workspace/api-response.json')); assert set(body) == {'id', 'status'} and body['status'] == 'ready'; print(json.dumps({'status': 200, 'contract': 'passed'}))\""]
                     timeline: list[str] = []
                     try:
+                        sandbox_memo = None
+                        artifact_payload = None
+                        step_started = time.perf_counter()
                         if selected_name == "Hybrid web research relay":
                             events = run_hybrid_web_research(project_id, region, value("OCI_CLI_PROFILE", "DEFAULT"), api_key, artifact_model, compartment_id)
                         elif selected_name == "LangGraph research worker":
@@ -584,10 +593,51 @@ PY''',
                         else:
                             events = run_single_turn(project_id, region, value("OCI_CLI_PROFILE", "DEFAULT"), commands)
                         for event in events:
-                            timeline.append(event)
+                            elapsed = time.perf_counter() - step_started
+                            if selected_name == "Hybrid web research relay" and "SANDBOX_MEMO=" in event:
+                                sandbox_memo = event.split("SANDBOX_MEMO=", 1)[1].strip()
+                            if selected_name == "Package + model artifact" and "ARTIFACT_JSON=" in event:
+                                artifact_payload = event.split("ARTIFACT_JSON=", 1)[1].strip()
+                            timeline.append(timed_event(event, elapsed))
+                            render_console(timeline)
+                            step_started = time.perf_counter()
+                        if selected_name == "Package + model artifact" and artifact_payload:
+                            handoff_started = time.perf_counter()
+                            timeline.append(timed_event("Application handoff → validate result.json returned by the sandbox", 0))
+                            artifact = json.loads(artifact_payload)
+                            if not isinstance(artifact.get("model"), str) or not isinstance(artifact.get("result"), str):
+                                raise ValueError("Sandbox artifact is missing the required model or result string.")
+                            timeline.append(
+                                timed_event(
+                                    f"Application handoff ← validated result.json from model {artifact['model']}; result is ready for the caller",
+                                    time.perf_counter() - handoff_started,
+                                )
+                            )
+                        if selected_name == "Hybrid web research relay" and sandbox_memo:
+                            handoff_started = time.perf_counter()
+                            timeline.append(timed_event("Application handoff → validate sandbox memo JSON (query, evidence, memo)", 0))
+                            memo_payload = json.loads(sandbox_memo)
+                            if not isinstance(memo_payload.get("query"), str) or not isinstance(memo_payload.get("memo"), str):
+                                raise ValueError("Sandbox memo is missing the required query or memo string.")
+                            evidence = memo_payload.get("evidence")
+                            if not isinstance(evidence, list) or not all(isinstance(item, dict) for item in evidence):
+                                raise ValueError("Sandbox memo evidence must be a list of source records.")
+                            timeline.append(
+                                timed_event(
+                                    f"Application handoff ← validated memo; passing {len(evidence)} evidence item(s) to local reviewer only",
+                                    time.perf_counter() - handoff_started,
+                                )
+                            )
+                            reviewer_started = time.perf_counter()
+                            timeline.append("Local reviewer session C → synthesize only the validated sandbox memo\n⏱ Step time: 0.00s")
+                            review = run_prompt(
+                                OciOpenAIConfig(region, compartment_id, project_id, model, api_key),
+                                "Write one concise answer based only on this validated sandbox research memo: " + memo_payload["memo"],
+                            )
+                            timeline.append(timed_event(f"Local reviewer output ← {review}", time.perf_counter() - reviewer_started))
                             render_console(timeline)
                     except Exception as exc:
-                        timeline.append(f"ERROR: {exc}")
+                        timeline.append(timed_event(f"ERROR: {exc}", time.perf_counter() - step_started))
                     st.session_state[timeline_key] = timeline
                 render_console(st.session_state.get(timeline_key, []))
 

@@ -219,6 +219,7 @@ print("SANDBOX_MEMO=" + json.dumps({{"query": query, "evidence": evidence, "memo
     encoded = base64.b64encode(script.encode()).decode()
     launcher = f"python -c \"import base64; exec(base64.b64decode('{encoded}'))\""
     command = f"OCI_GENAI_API_KEY={shlex.quote(api_key)} OCI_GENAI_PROJECT_ID={shlex.quote(project_id)} {launcher}"
+    yield "Sandbox worker session B → retrieve bounded public evidence and write SANDBOX_MEMO"
     for event in run_single_turn(project_id, region, profile, ["python -m pip install --quiet openai", command]):
         if event.startswith("OCI SDK → run_sandbox_command_and_wait:") and command in event:
             yield _display_program_command(project_id, launcher, script)
