@@ -193,7 +193,7 @@ def main() -> None:
                     edge [fontname="Arial", fontsize=10, color="#7B8794", arrowsize=0.7];
 
                     user [label="User", fillcolor="#EAF2FF", color="#2F6FED"];
-                    app [label="Your application\n+or AI agent", fillcolor="#E8F8F0", color="#159957"];
+                    app [label="Your application\nor AI agent", fillcolor="#E8F8F0", color="#159957"];
                     sandbox [label="OCI GenAI Sandbox\nIsolated Linux workspace\n• run commands\n• create files", fillcolor="#FFF5E6", color="#E38B12"];
                     external [label="Approved external services\nModels, APIs, or web access", fillcolor="#F4EEFF", color="#7651C8"];
                     result [label="Selected results\nand files", fillcolor="#F6F8FA", color="#6E7781"];
@@ -208,6 +208,29 @@ def main() -> None:
                 """
             )
             st.caption("The sandbox is temporary and separate from the main application. Only the outputs your application chooses to retrieve leave the workspace.")
+
+        st.subheader("Sandbox vs. container vs. interpreter")
+        st.write("These terms are related, but they describe different things:")
+        st.table(
+            [
+                {
+                    "Term": "OCI GenAI Sandbox",
+                    "What it is": "A managed, temporary execution environment with its own workspace, session lifecycle, and controls.",
+                    "Think of it as": "A safe, short-lived place for a task to run.",
+                },
+                {
+                    "Term": "Container",
+                    "What it is": "A packaged runtime image containing software and dependencies.",
+                    "Think of it as": "The prepared toolset that can be used for a workload. A sandbox can use a standard runtime or an approved custom image.",
+                },
+                {
+                    "Term": "Interpreter",
+                    "What it is": "A program that runs a language, such as Python, Node.js, or Bash commands.",
+                    "Think of it as": "One tool inside the workspace—not the workspace itself.",
+                },
+            ]
+        )
+        st.caption("In short: an interpreter runs code; a container packages software; a sandbox provides the isolated place where approved work happens.")
         st.info("This app is a tutorial companion. Runnable tutorials create short-lived sandboxes and request cleanup when they finish.")
 
     with tutorial:
@@ -496,6 +519,37 @@ PY''',
                 "language": "bash",
             },
         }
+        def render_flow_diagram(name: str, flow: list[str]) -> None:
+            """Render a compact, sample-specific view of the sandbox handoff."""
+            def dot_label(value: str) -> str:
+                return value.replace("\\", "\\\\").replace('"', '\\"')
+
+            steps = "\\n".join(f"{index}. {step}" for index, step in enumerate(flow, start=1))
+            st.caption(f"{name}: your application controls the request, the sandbox performs the isolated work, and only selected results return.")
+            st.graphviz_chart(
+                f'''digraph tutorial_flow {{
+                    graph [rankdir=LR, bgcolor="transparent", pad="0.25", nodesep="0.4", ranksep="0.6"];
+                    node [shape=box, style="rounded,filled", fontname="Arial", fontsize=11, margin="0.16,0.11"];
+                    edge [fontname="Arial", fontsize=9, color="#7B8794", arrowsize=0.7];
+
+                    caller [label="User or calling app", fillcolor="#EAF2FF", color="#2F6FED"];
+                    app [label="Application / agent\\napproves the task", fillcolor="#E8F8F0", color="#159957"];
+                    sandbox [label="OCI GenAI Sandbox\\nisolated workspace", fillcolor="#FFF5E6", color="#E38B12"];
+                    work [label="{dot_label(steps)}", fillcolor="#F4EEFF", color="#7651C8"];
+                    external [label="Approved input or services\\nwhen the sample needs them", fillcolor="#EAF2FF", color="#2F6FED"];
+                    result [label="Validated result\\nor selected files", fillcolor="#F6F8FA", color="#6E7781"];
+
+                    caller -> app [label="request"];
+                    app -> sandbox [label="approved work"];
+                    sandbox -> work [label="run sample"];
+                    work -> sandbox [label="output"];
+                    external -> sandbox [label="controlled access", style=dashed];
+                    sandbox -> external [label="bounded request", style=dashed];
+                    sandbox -> app [label="artifacts / status"];
+                    app -> result [label="return"];
+                }}'''
+            )
+
         @st.dialog("Tutorial details", width="large")
         def show_read_more(name: str, details: dict) -> None:
             st.subheader(name)
@@ -503,6 +557,8 @@ PY''',
                 st.write(paragraph)
             st.markdown("#### Execution flow")
             st.markdown(" → ".join(details["read_more"]["flow"]))
+            with st.expander("View the interaction diagram", expanded=False):
+                render_flow_diagram(name, details["read_more"]["flow"])
             st.markdown("#### Security constraints")
             st.write(details["read_more"]["security"])
             if st.button("Close", key=f"close-read-more-{name}"):
@@ -585,6 +641,8 @@ PY''',
                         st.write(paragraph)
                     st.markdown("**Execution flow**")
                     st.markdown(" → ".join(selected["read_more"]["flow"]))
+                    with st.expander("View the interaction diagram", expanded=False):
+                        render_flow_diagram(selected_name, selected["read_more"]["flow"])
                     st.markdown("**Security constraints**")
                     st.write(selected["read_more"]["security"])
                 with st.expander("Session lifecycle", expanded=False):
