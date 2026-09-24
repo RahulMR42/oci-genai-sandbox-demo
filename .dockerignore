@@ -1,0 +1,16 @@
+.git
+.env
+.venv
+.venv-infra
+__pycache__
+*.py[cod]
+.streamlit
+infra
+examples
+README.md
+
+# The local deployment Dockerfile deliberately embeds deployment-local/.env.
+# Keep all other local deployment files out of the build context.
+deployment-local/*
+!deployment-local/Dockerfile
+!deployment-local/.env

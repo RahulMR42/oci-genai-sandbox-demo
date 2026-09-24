@@ -12,6 +12,26 @@ cp .env.example .env
 env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY -u http_proxy -u https_proxy python3 run.py
 ```
 
+## Run with Docker
+
+Build the image, then provide configuration only at runtime (the `.env` file is
+excluded from the build context):
+
+```bash
+docker build -t oci-sandbox-lab .
+docker run --rm --init -p 8501:8501 --env-file .env \
+  --env HTTP_PROXY= --env HTTPS_PROXY= --env ALL_PROXY= \
+  --env http_proxy= --env https_proxy= --env all_proxy= \
+  --env NO_PROXY='*' --env no_proxy='*' oci-sandbox-lab
+```
+
+Open <http://localhost:8501>. Set `APP_PASSWORD` in `.env` before starting a
+container; otherwise the generated password is printed in the container logs.
+The OCI Sandbox tutorial actions additionally require Oracle's preview OCI SDK
+and an OCI user-principal configuration. Mount these at runtime only if those
+actions are needed; model-only features work with the dependencies in
+`requirements.txt`.
+
 The app opens with a login screen. The username is `oci` unless `APP_USER` is set.
 Set `APP_PASSWORD` to choose the password; if it is absent, the app creates a secure
 16-character alphanumeric password before Streamlit starts and prints it to the

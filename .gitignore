@@ -3,3 +3,5 @@
 __pycache__/
 .streamlit/secrets.toml
 
+# Local-only deployment overrides and generated staging files.
+deployment-local/

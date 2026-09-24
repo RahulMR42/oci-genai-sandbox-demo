@@ -158,7 +158,13 @@ def main() -> None:
     apply_oracle_theme()
 
     with st.sidebar:
-        st.markdown("### OCI Sandbox Lab")
+        title_column, logout_column = st.columns((5, 1))
+        with title_column:
+            st.markdown("### OCI Sandbox Lab")
+        with logout_column:
+            if st.button("⇥", key="logout", help="Log out", use_container_width=True):
+                st.session_state.pop("authenticated", None)
+                st.rerun()
         st.caption("Tutorial workspace · local configuration")
         st.divider()
         st.markdown("**Connection settings**")
