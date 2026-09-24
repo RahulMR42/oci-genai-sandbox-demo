@@ -5,6 +5,9 @@ from __future__ import annotations
 import os
 import json
 import time
+import hmac
+import secrets
+import string
 from html import escape
 
 import streamlit as st
@@ -13,15 +16,63 @@ from dotenv import load_dotenv
 from services.oci_openai import OciOpenAIConfig, run_prompt
 from services.oci_sandbox import run_hybrid_web_research, run_langgraph_research, run_package_model_artifact, run_single_turn
 
-load_dotenv(override=True)
+# The launcher resolves .env values before Streamlit starts. Do not replace its
+# generated APP_PASSWORD during a Streamlit script rerun.
+load_dotenv()
 
 st.set_page_config(page_title="OCI Sandbox Lab", page_icon="◈", layout="wide")
 
 DEFAULT_COMPARTMENT = "ocid1.compartment.oc1..aaaaaaaa75igkvdlzgwy5kly2cyjysezlkmsw436b3uvjeir4mffyz2k2dyq"
 
 
+def app_credentials() -> tuple[str, str]:
+    """Return the configured login credentials, generating a startup password if needed."""
+    username = os.getenv("APP_USER") or "oci"
+    password = os.getenv("APP_PASSWORD")
+    if not password:
+        alphabet = string.ascii_letters + string.digits
+        password = "".join(secrets.choice(alphabet) for _ in range(16))
+        # Store it in the running process so Streamlit reruns do not rotate it.
+        os.environ["APP_PASSWORD"] = password
+        print(
+            "APP_PASSWORD was not set. Generated startup login password: "
+            f"{password}",
+            flush=True,
+        )
+    return username, password
+
+
+APP_USER, APP_PASSWORD = app_credentials()
+
+
 def value(name: str, fallback: str = "") -> str:
     return os.getenv(name, fallback)
+
+
+def require_login() -> None:
+    """Show the login screen and stop rendering until this browser session authenticates."""
+    if st.session_state.get("authenticated"):
+        return
+
+    st.markdown("<br><br>", unsafe_allow_html=True)
+    _, login_column, _ = st.columns((1, 1.2, 1))
+    with login_column:
+        st.title("OCI Sandbox Lab")
+        st.caption("Sign in to access the tutorial workspace.")
+        with st.form("login_form"):
+            username = st.text_input("Username", autocomplete="username")
+            password = st.text_input("Password", type="password", autocomplete="current-password")
+            submitted = st.form_submit_button("Sign in", type="primary", use_container_width=True)
+
+        if submitted:
+            valid_username = hmac.compare_digest(username, APP_USER)
+            valid_password = hmac.compare_digest(password, APP_PASSWORD)
+            if valid_username and valid_password:
+                st.session_state.authenticated = True
+                st.rerun()
+            st.error("Invalid username or password.")
+
+    st.stop()
 
 
 def console_entry_type(event: str) -> tuple[str, str]:
@@ -103,6 +154,7 @@ def apply_oracle_theme() -> None:
 
 
 def main() -> None:
+    require_login()
     apply_oracle_theme()
 
     with st.sidebar:

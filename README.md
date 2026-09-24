@@ -9,8 +9,13 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env
-env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY streamlit run app.py
+env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY -u http_proxy -u https_proxy python3 run.py
 ```
+
+The app opens with a login screen. The username is `oci` unless `APP_USER` is set.
+Set `APP_PASSWORD` to choose the password; if it is absent, the app creates a secure
+16-character alphanumeric password before Streamlit starts and prints it to the
+terminal. The generated password remains valid for that app process.
 
 Set these values in `.env`:
 
@@ -21,6 +26,8 @@ OCI_GENAI_PROJECT_ID=ocid1.generativeaiproject.oc1.us-chicago-1...
 OCI_GENAI_API_KEY=your-oci-generative-ai-api-key-secret
 OCI_MODEL_ID=openai.gpt-oss-120b
 OCI_ARTIFACT_MODEL_ID=openai.gpt-oss-120b
+APP_USER=oci
+APP_PASSWORD=choose-a-strong-password
 ```
 
 `OCI_SANDBOX_PROJECT_ID` must refer to a project with GenAI Sandbox enabled. The app disables proxy inheritance for OCI Sandbox SDK and OCI OpenAI-compatible model calls.
